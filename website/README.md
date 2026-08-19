@@ -10,27 +10,29 @@ Static customer-facing site for **Built With Grok** (AI product consultancy).
 | `services.html` | Three products/services + supporting offers |
 | `about.html` | Mission, ICP, how we work |
 | `contact.html` | Project inquiry form + email |
+| `privacy.html` | Sole-trader privacy notice |
 
 ## Run locally
 
 Open `index.html` in a browser, or serve the folder:
 
 ```bash
-# Python
+# Python (static pages only — form POST needs the Worker)
 python -m http.server 8080 --directory website
 
-# Node (if npx available)
-npx --yes serve website
+# Worker + static site (preferred)
+npm install
+npm run dev
 ```
 
-Then visit `http://localhost:8080`.
+Then visit `http://localhost:8080` (Python) or the Wrangler URL (form works).
 
 ## Deploy
 
-Any static host works: Cloudflare Pages, Netlify, GitHub Pages, S3 + CDN.
+Cloudflare Worker `built-with-grok` serves `website/` and handles `POST /api/contact`.
 
-- **Root:** point publish directory at `website/`
-- **Contact form:** wire `#contact-form` to Formspree, Netlify Forms, Cloudflare Workers, or your API (currently client-side demo + `mailto:`)
+- **Root:** `wrangler.jsonc` assets directory is `./website`
+- **Contact form:** native POST to `/api/contact`; the Worker forwards to FormSubmit and redirects to `/contact.html?sent=1`
 
 ## Brand notes
 

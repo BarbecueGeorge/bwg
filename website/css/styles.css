@@ -905,6 +905,23 @@ section {
   line-height: 1.65;
 }
 
+.prose h2 {
+  font-size: 1.15rem;
+  margin: 1.75rem 0 0.65rem;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.prose h2:first-child {
+  margin-top: 0;
+}
+
+.prose a {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .prose p strong {
   color: var(--text);
   font-weight: 600;
@@ -986,6 +1003,7 @@ section {
 }
 
 .form-card {
+  position: relative;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) + 4px);
@@ -1096,6 +1114,12 @@ section {
 
 .form-error:not([hidden]) {
   display: block;
+}
+
+.form-error a {
+  color: #ffd4d4;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Honeypot — hide from humans, bots may fill it */

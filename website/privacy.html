@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Contact &mdash; Built With Grok</title>
-  <meta name="description" content="Start a project with Built With Grok. Tell us what you want to ship&mdash;sprint, production AI, or Physical &times; AI." />
+  <title>Privacy &mdash; Built With Grok</title>
+  <meta name="description" content="How Built With Grok collects, uses, and looks after personal data from the website and project enquiries." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -65,7 +65,7 @@
         <li><a href="index.html">Home</a></li>
         <li><a href="services.html">Services</a></li>
         <li><a href="about.html">About</a></li>
-        <li><a class="nav-cta active" href="contact.html">Start a project</a></li>
+        <li><a class="nav-cta" href="contact.html">Start a project</a></li>
       </ul>
     </div>
   </header>
@@ -73,81 +73,93 @@
   <main>
     <div class="page-hero">
       <div class="wrap">
-        <p class="section-kicker">Contact</p>
-        <h1>Start a project</h1>
+        <p class="section-kicker">Privacy</p>
+        <h1>Privacy notice</h1>
         <p>
-          Share a short brief. We&rsquo;ll reply with fit, recommended offer path, and next steps&mdash;
-          usually within a few business days.
+          How Built With Grok collects, uses, and looks after personal data when you visit
+          this site or send a project enquiry. Last updated 19 August 2026.
         </p>
       </div>
     </div>
 
-    <div class="wrap contact-grid">
-      <div class="contact-info">
-        <h2>What to include</h2>
-        <p>
-          The sharper the problem and timeline, the faster we can map you to a Product Sprint,
-          Production AI phase, or Physical &times; AI Lab.
-        </p>
-        <dl>
-          <dt>Email</dt>
-          <dd><a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a></dd>
-          <dt>Typical response</dt>
-          <dd>2&ndash;4 business days</dd>
-          <dt>Ideal fit</dt>
-          <dd>Founders, CTOs, product &amp; innovation leads with mid five- to six-figure project budget</dd>
-          <dt>Offers</dt>
-          <dd><a href="services.html">Sprint &middot; Production &middot; Physical &times; AI</a></dd>
-        </dl>
-      </div>
-
-      <div class="form-card">
-        <div id="form-success" class="form-success" role="status" tabindex="-1" hidden>
-          Thanks &mdash; your message was sent to <strong>hello@builtwithgrok.co.uk</strong>.
-          We&rsquo;ll reply within a few business days.
-        </div>
-        <div id="form-error" class="form-error" role="alert" hidden>
-          Could not send your message. Please email
-          <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>
-          directly.
-        </div>
-        <form id="contact-form" action="/api/contact" method="POST">
-          <input type="text" name="honeypot" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true" />
-          <div class="field">
-            <label for="name">Name</label>
-            <input id="name" name="name" type="text" required autocomplete="name" placeholder="Alex Founder" />
-          </div>
-          <div class="field">
-            <label for="email">Work email</label>
-            <input id="email" name="email" type="email" required autocomplete="email" placeholder="you@company.com" />
-          </div>
-          <div class="field">
-            <label for="company">Company</label>
-            <input id="company" name="company" type="text" autocomplete="organization" placeholder="Acme" />
-          </div>
-          <div class="field">
-            <label for="interest">Interest</label>
-            <select id="interest" name="interest">
-              <option value="Grok Product Sprint">Grok Product Sprint</option>
-              <option value="Production AI Systems">Production AI Systems</option>
-              <option value="Physical &times; AI Lab">Physical &times; AI Lab</option>
-              <option value="Discovery Workshop">Discovery Workshop</option>
-              <option value="Not sure yet">Not sure yet</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="message">What do you want to ship?</label>
-            <textarea id="message" name="message" required placeholder="Problem, users, timeline, constraints&hellip;"></textarea>
-          </div>
-          <button class="btn btn-primary" type="submit" id="contact-submit">Send message</button>
-          <p class="form-note">
-            Messages go to <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>
-            (the Built With Grok inbox). How we use your details:
-            <a href="privacy.html">privacy notice</a>.
+    <section>
+      <div class="wrap">
+        <div class="prose">
+          <h2>Who we are</h2>
+          <p>
+            Built With Grok is a UK sole trader trading under that name. It is not a
+            limited company, so there is no Companies House number. For this website
+            and inbound enquiries, the sole trader is the data controller. Contact us at
+            <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>.
           </p>
-        </form>
+
+          <h2>What we collect</h2>
+          <p>
+            If you use the contact form or email us, we receive the details you send: name,
+            work email, company (if given), which offer you are interested in, and your
+            project brief. We also receive basic technical data from hosting and email
+            delivery (for example IP address, browser type, and timestamps) that our
+            providers log to operate the service.
+          </p>
+          <p>
+            We do not run marketing cookies or advertising trackers on this site.
+          </p>
+
+          <h2>Why we use it</h2>
+          <p>
+            We use enquiry data to decide whether we are a fit, reply, and &mdash; if we
+            work together &mdash; to scope and deliver the engagement. The legal bases are
+            steps toward a contract and our legitimate interest in running a studio and
+            responding to people who contact us.
+          </p>
+
+          <h2>Who else sees it</h2>
+          <p>
+            The public site is served through Cloudflare. The contact form posts to
+            this site only. A Cloudflare Worker then forwards the message to FormSubmit,
+            which emails
+            <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>.
+            Your browser does not visit FormSubmit. Those providers process data on our
+            instructions so the site and inbox work. We do not sell your data. We do
+            not use enquiry content to train foundation models.
+          </p>
+          <p>
+            Some of those providers may store or process data outside the UK. Where that
+            happens, we rely on their published safeguards (such as standard contractual
+            clauses) for the transfer.
+          </p>
+
+          <h2>How long we keep it</h2>
+          <p>
+            We keep unsuccessful enquiries for up to 24 months, then delete them unless
+            we need to retain a record (for example a legal claim). If you become a
+            client, we keep what the engagement and UK law require, then delete or
+            anonymise it when it is no longer needed.
+          </p>
+
+          <h2>Your rights</h2>
+          <p>
+            You can ask us for a copy of your data, to correct it, to delete it, to
+            restrict or object to our use of it, or to move it. Email
+            <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>.
+            You can also complain to the
+            <a href="https://ico.org.uk/make-a-complaint/" rel="noopener">Information Commissioner&rsquo;s Office</a>.
+          </p>
+
+          <h2>Children</h2>
+          <p>
+            This site is for business contact. We do not knowingly collect data from
+            children.
+          </p>
+
+          <h2>Changes</h2>
+          <p>
+            If we change this notice in a material way, we will update this page and
+            the date above.
+          </p>
+        </div>
       </div>
-    </div>
+    </section>
   </main>
 
   <footer class="site-footer">

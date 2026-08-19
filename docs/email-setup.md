@@ -40,6 +40,6 @@ Until step 4, keep Email Routing so public contact mail still arrives.
 
 ## Site
 
-Contact page form posts via [FormSubmit](https://formsubmit.co) AJAX to **hello@builtwithgrok.co.uk**, which Email Routing delivers to Proton.
+The contact form posts **same-origin** to `/api/contact` on the `built-with-grok` Worker. The Worker forwards the fields (name, email, company, interest, message) to [FormSubmit](https://formsubmit.co) **server-side**, then redirects the visitor to `/contact.html?sent=1`. The visitor’s browser never has to resolve `formsubmit.co`.
 
 **First submission:** FormSubmit may email `hello@…` with an activation link — open that once so production enquiries deliver. After activation, submissions appear in Proton as normal mail.

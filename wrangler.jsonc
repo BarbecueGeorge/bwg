@@ -1,11 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "built-with-grok",
+  "main": "src/worker.js",
   "compatibility_date": "2026-08-11",
   "workers_dev": true,
   "preview_urls": true,
   "assets": {
-    "directory": "./website"
+    "directory": "./website",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
   },
   "routes": [
     { "pattern": "builtwithgrok.co.uk", "custom_domain": true },
