@@ -32,7 +32,7 @@ Then visit `http://localhost:8080` (Python) or the Wrangler URL (form works).
 Cloudflare Worker `built-with-grok` serves `website/` and handles `POST /api/contact`.
 
 - **Root:** `wrangler.jsonc` assets directory is `./website`
-- **Contact form:** native POST to `/api/contact`; the Worker forwards to FormSubmit and redirects to `/contact.html?sent=1`
+- **Contact form:** native POST to `/api/contact`; the Worker stores the enquiry in KV (`CONTACT_LEADS`) and tries FormSubmit as a best-effort copy, then redirects to `/contact.html?sent=1`
 
 ## Brand notes
 

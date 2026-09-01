@@ -16,5 +16,11 @@
   ],
   "observability": {
     "enabled": true
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "CONTACT_LEADS",
+      "id": "be9028b297a44aa0bda686d09e3d7f6f"
+    }
+  ]
 }

@@ -4,42 +4,31 @@
 
 The marketing site uses **hello@builtwithgrok.co.uk**.
 
-### Receive path (configured)
+### Receive path (live)
 
-Cloudflare **Email Routing** for zone `builtwithgrok.co.uk`:
+**Proton Mail** hosts the custom domain. Proton MX is live for `builtwithgrok.co.uk`:
 
 | Setting | Value |
 |---------|--------|
-| Status | Enabled / ready |
 | Address | `hello@builtwithgrok.co.uk` |
-| Action | Forward to `barbecuegeorge@proton.me` |
-| Rule | `hello-bwg` |
+| MX | `mail.protonmail.ch` (priority 10), `mailsec.protonmail.ch` (priority 20) |
 
-Mail to **hello@builtwithgrok.co.uk** is delivered into the Proton inbox for **barbecuegeorge@proton.me**.
+Mail to **hello@builtwithgrok.co.uk** arrives in the Proton inbox for that address.
 
-If a destination verification email is still pending, open Proton Mail and confirm the Cloudflare “verify destination address” message.
+Cloudflare **Email Routing** is no longer the inbound path. Do not re-enable Email Routing MX while Proton MX is in use — the two conflict.
 
-### DNS
-
-Email Routing manages MX + SPF + DKIM for Cloudflare mail. Do **not** point MX at Proton while using Email Routing (they conflict).
-
-## Optional: native Proton custom domain (send as hello@ from Proton)
-
-Requires a **paid Proton plan** (Mail Plus / Unlimited / etc.) and cannot be finished without the Proton dashboard (verification TXT + DKIM values are unique):
-
-1. Proton → **Settings → All settings → Domain names → Add domain** → `builtwithgrok.co.uk`
-2. Add the **verification TXT** Proton shows (DNS only / Cloudflare DNS)
-3. **Before** switching MX away from Cloudflare Email Routing, add address **hello@builtwithgrok.co.uk** under the domain
-4. Replace Email Routing MX with Proton MX:
-   - `mail.protonmail.ch` priority 10  
-   - `mailsec.protonmail.ch` priority 20  
-5. Add SPF `include:_spf.protonmail.ch`, Proton DKIM CNAMEs, and DMARC as shown in Proton
-6. Disable Cloudflare Email Routing once Proton MX is green
-
-Until step 4, keep Email Routing so public contact mail still arrives.
+Do not change DNS from this repo. Proton verification TXT, DKIM CNAMEs, SPF, and DMARC are managed in Cloudflare DNS / the Proton dashboard.
 
 ## Site
 
-The contact form posts **same-origin** to `/api/contact` on the `built-with-grok` Worker. The Worker forwards the fields (name, email, company, interest, message) to [FormSubmit](https://formsubmit.co) **server-side**, then redirects the visitor to `/contact.html?sent=1`. The visitor’s browser never has to resolve `formsubmit.co`.
+The contact form posts **same-origin** to `/api/contact` on the `built-with-grok` Worker. The Worker:
 
-**First submission:** FormSubmit may email `hello@…` with an activation link — open that once so production enquiries deliver. After activation, submissions appear in Proton as normal mail.
+1. Persists every valid enquiry to the `CONTACT_LEADS` KV namespace (about 180 days).
+2. Tries [FormSubmit](https://formsubmit.co) **server-side** as a best-effort copy to `hello@builtwithgrok.co.uk`.
+3. Redirects the visitor to `/contact.html?sent=1` if the KV write succeeded, even when FormSubmit fails (activation mail, 429, or `success: false`).
+
+The visitor’s browser never has to resolve `formsubmit.co`.
+
+If KV is missing and FormSubmit also fails, the visitor is sent to `/contact.html?error=1` and can email `hello@` directly.
+
+**FormSubmit first submission:** FormSubmit may email `hello@…` with an activation link — open that once if you want the best-effort copy to land in Proton. The KV record is the durable backup when that copy does not arrive.

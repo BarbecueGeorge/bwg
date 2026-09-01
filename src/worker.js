@@ -5,7 +5,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/contact") {
-      return handleContact(request);
+      return handleContact(request, env);
     }
 
     if (url.pathname.startsWith("/api/")) {
