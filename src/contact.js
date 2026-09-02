@@ -1,5 +1,7 @@
+import { EmailMessage } from "cloudflare:email";
+
 const CONTACT_EMAIL = "hello@builtwithgrok.co.uk";
-const FORMSUBMIT_ENDPOINT = `https://formsubmit.co/ajax/${CONTACT_EMAIL}`;
+const FROM_EMAIL = "forms@notify.builtwithgrok.co.uk";
 const SUCCESS_PATH = "/contact.html?sent=1";
 const ERROR_PATH = "/contact.html?error=1";
 const LEAD_KEY_PREFIX = "lead:";
@@ -64,20 +66,10 @@ async function readFields(request) {
   return Object.fromEntries(form.entries());
 }
 
-/**
- * FormSubmit is best-effort only. Require an explicit success flag and a 2xx
- * status. A message string alone is never treated as success (FormSubmit can
- * return a message with success: false, including activation and 429 cases).
- */
-function formsubmitSucceeded(status, body) {
-  if (status < 200 || status >= 300) return false;
-  if (!body || typeof body !== "object") return false;
-  if (body.success === false || body.success === "false") return false;
-  return body.success === true || body.success === "true";
-}
-
 function leadKey() {
-  const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id =
+    globalThis.crypto?.randomUUID?.() ||
+    `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${LEAD_KEY_PREFIX}${id}`;
 }
 
@@ -85,50 +77,64 @@ async function persistLead(env, lead) {
   const kv = env && env.CONTACT_LEADS;
   if (!kv || typeof kv.put !== "function") return false;
   try {
-    await kv.put(leadKey(), JSON.stringify(lead), { expirationTtl: LEAD_TTL_SECONDS });
+    await kv.put(leadKey(), JSON.stringify(lead), {
+      expirationTtl: LEAD_TTL_SECONDS,
+    });
     return true;
   } catch {
     return false;
   }
 }
 
-async function notifyFormSubmit(fetchImpl, request, fields) {
-  const originUrl = new URL(request.url);
-  const upstream = await fetchImpl(FORMSUBMIT_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      Origin: originUrl.origin,
-      Referer: `${originUrl.origin}/contact.html`,
-    },
-    body: JSON.stringify({
-      ...fields,
-      _subject: "Built With Grok — project enquiry",
-      _template: "table",
-      _captcha: "false",
-    }),
-    redirect: "manual",
-  });
+function rfc2822Encode(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r|\n/g, " ");
+}
 
-  let body = {};
-  const text = await upstream.text();
+function buildEnquiryMime({ name, email, company, interest, message, at }) {
+  const subject = `Built With Grok enquiry from ${rfc2822Encode(name)}`;
+  const text = [
+    `New project enquiry from the Built With Grok contact form.`,
+    ``,
+    `Name: ${name}`,
+    `Email: ${email}`,
+    `Company: ${company || "(none)"}`,
+    `Interest: ${interest || "(none)"}`,
+    `Received: ${at}`,
+    ``,
+    message,
+  ].join("\n");
+
+  return [
+    `From: Built With Grok <${FROM_EMAIL}>`,
+    `To: ${CONTACT_EMAIL}`,
+    `Reply-To: ${rfc2822Encode(name)} <${email}>`,
+    `Subject: ${subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset=utf-8`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    text,
+  ].join("\r\n");
+}
+
+async function notifyHello(env, lead) {
+  if (!env || !env.EMAIL || typeof env.EMAIL.send !== "function") return false;
   try {
-    body = JSON.parse(text);
+    const raw = buildEnquiryMime(lead);
+    await env.EMAIL.send(new EmailMessage(FROM_EMAIL, CONTACT_EMAIL, raw));
+    return true;
   } catch {
-    body = {};
+    return false;
   }
-  return formsubmitSucceeded(upstream.status, body);
 }
 
 /**
- * Same-origin contact POST. Persists every valid enquiry to KV, then tries
- * FormSubmit as a best-effort copy so the visitor's browser never has to
- * resolve formsubmit.co.
+ * Same-origin contact POST. Persists the enquiry to KV and emails hello@.
  */
 export async function handleContact(request, env = {}, options = {}) {
-  const fetchImpl = options.fetchImpl || fetch;
-
   if (request.method === "GET" || request.method === "HEAD") {
     return redirect("/contact.html");
   }
@@ -176,24 +182,19 @@ export async function handleContact(request, env = {}, options = {}) {
     return redirect(ERROR_PATH);
   }
 
-  const stored = await persistLead(env, {
+  const lead = {
     at: new Date().toISOString(),
     name,
     email,
     company,
     interest,
     message,
-  });
+  };
 
+  const stored = await persistLead(env, lead);
   let emailed = false;
   try {
-    emailed = await notifyFormSubmit(fetchImpl, request, {
-      name,
-      email,
-      company,
-      interest,
-      message,
-    });
+    emailed = await notifyHello(env, lead);
   } catch {
     emailed = false;
   }
@@ -206,7 +207,7 @@ export async function handleContact(request, env = {}, options = {}) {
 
 export {
   CONTACT_EMAIL,
-  FORMSUBMIT_ENDPOINT,
+  FROM_EMAIL,
   SUCCESS_PATH,
   ERROR_PATH,
   LEAD_KEY_PREFIX,
