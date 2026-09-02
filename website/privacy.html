@@ -116,13 +116,13 @@
           <h2>Who else sees it</h2>
           <p>
             The public site is served through Cloudflare. The contact form posts to
-            this site only. A Cloudflare Worker receives the enquiry, stores a copy so
-            we can recover it if email delivery fails, and delivers it to
-            <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>.
-            FormSubmit is used only as a best-effort copy from the Worker. Your
-            browser does not visit FormSubmit. Those providers process data on our
-            instructions so the site and inbox work. We do not sell your data. We do
-            not use enquiry content to train foundation models.
+            this site only. A Cloudflare Worker receives the enquiry, stores a copy
+            in KV so we can recover it if email delivery fails, and emails it to
+            <a href="mailto:hello@builtwithgrok.co.uk">hello@builtwithgrok.co.uk</a>
+            using Cloudflare Email Routing. Proton Mail hosts that inbox. Those
+            providers process data on our instructions so the site and inbox work.
+            We do not sell your data. We do not use enquiry content to train
+            foundation models.
           </p>
           <p>
             Some of those providers may store or process data outside the UK. Where that

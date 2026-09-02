@@ -3,11 +3,14 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
 import { describe, it } from "node:test";
 import {
+  CONTACT_EMAIL,
   ERROR_PATH,
-  FORMSUBMIT_ENDPOINT,
+  FROM_ADDRESS,
+  FROM_NAME,
   LEAD_KEY_PREFIX,
   LEAD_TTL_SECONDS,
   SUCCESS_PATH,
+  buildRawEnquiryEmail,
   handleContact,
 } from "../src/contact.js";
 import worker from "../src/worker.js";
@@ -40,152 +43,190 @@ function validFields(overrides = {}) {
   };
 }
 
-function mockFetch(status, body, captured) {
-  return async (url, init) => {
-    captured.push({ url, init });
-    return new Response(typeof body === "string" ? body : JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
-  };
+class FakeEmailMessage {
+  constructor(from, to, raw) {
+    this.from = from;
+    this.to = to;
+    this.raw = raw;
+  }
 }
 
-function mockKv() {
+function mockKv(options = {}) {
   const store = new Map();
   return {
     store,
-    async put(key, value, options) {
-      store.set(key, { value, options });
+    async put(key, value, putOptions) {
+      if (options.fail) throw new Error("kv put failed");
+      store.set(key, { value, options: putOptions });
     },
   };
 }
 
+function mockEmail(behavior = "ok") {
+  const sent = [];
+  return {
+    sent,
+    EMAIL: {
+      async send(message) {
+        sent.push(message);
+        if (behavior === "throw") {
+          const err = new Error("send failed");
+          err.code = "E_DELIVERY_FAILED";
+          throw err;
+        }
+        return { messageId: "msg-test-1" };
+      },
+    },
+  };
+}
+
+function contactEnv(kv, email) {
+  return {
+    env: {
+      CONTACT_LEADS: kv,
+      EMAIL: email.EMAIL,
+    },
+    options: { EmailMessage: FakeEmailMessage },
+  };
+}
+
+function assertLead(kv, fields) {
+  assert.equal(kv.store.size, 1);
+  const [key, record] = [...kv.store.entries()][0];
+  assert.equal(key.startsWith(LEAD_KEY_PREFIX), true);
+  const lead = JSON.parse(record.value);
+  assert.equal(lead.name, fields.name);
+  assert.equal(lead.email, fields.email);
+  assert.equal(lead.company, fields.company);
+  assert.equal(lead.interest, fields.interest);
+  assert.equal(lead.message, fields.message);
+  assert.equal(typeof lead.at, "string");
+  assert.ok(Date.parse(lead.at));
+  assert.equal(record.options.expirationTtl, LEAD_TTL_SECONDS);
+  return lead;
+}
+
+function assertEnquiryMessage(message, fields, at) {
+  assert.equal(message instanceof FakeEmailMessage, true);
+  assert.equal(message.from, FROM_ADDRESS);
+  assert.equal(message.to, CONTACT_EMAIL);
+  assert.equal(typeof message.raw, "string");
+  assert.equal(message.html, undefined);
+  assert.equal(message.replyTo, undefined);
+  assert.equal(message.text, undefined);
+  assert.match(message.raw, new RegExp(`From: ${FROM_NAME} <${FROM_ADDRESS}>`));
+  assert.match(message.raw, new RegExp(`To: ${CONTACT_EMAIL}`));
+  assert.match(message.raw, new RegExp(`Reply-To: ${fields.email}`));
+  assert.match(message.raw, new RegExp(`Subject: Built With Grok enquiry from ${fields.name}`));
+  assert.match(message.raw, new RegExp(`Name: ${fields.name}`));
+  assert.match(message.raw, new RegExp(`Email: ${fields.email}`));
+  assert.match(message.raw, new RegExp(`Company: ${fields.company}`));
+  assert.match(message.raw, new RegExp(`Interest: ${fields.interest}`));
+  assert.match(message.raw, /Message:/);
+  assert.match(message.raw, new RegExp(fields.message));
+  assert.match(message.raw, /Sent: /);
+  if (at) assert.match(message.raw, new RegExp(`Sent: ${at}`));
+}
+
+async function withCapturedErrors(fn) {
+  const errors = [];
+  const original = console.error;
+  console.error = (...args) => {
+    errors.push(args);
+  };
+  try {
+    return { result: await fn(), errors };
+  } finally {
+    console.error = original;
+  }
+}
+
 describe("handleContact", () => {
-  it("forwards valid fields to FormSubmit and returns the user to /contact.html?sent=1", async () => {
-    const captured = [];
+  it("emails hello@ via EmailMessage, persists KV, and returns /contact.html?sent=1", async () => {
     const kv = mockKv();
-    const res = await handleContact(
-      formPost(validFields()),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(200, { success: "true", message: "Form submitted" }, captured) }
-    );
+    const email = mockEmail();
+    const fields = validFields();
+    const { env, options } = contactEnv(kv, email);
+    const res = await handleContact(formPost(fields), env, options);
 
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), SUCCESS_PATH);
-    assert.equal(captured.length, 1);
-    assert.equal(captured[0].url, FORMSUBMIT_ENDPOINT);
-    const payload = JSON.parse(captured[0].init.body);
-    assert.equal(payload.name, "Alex Founder");
-    assert.equal(payload.email, "alex@acme.com");
-    assert.equal(payload.company, "Acme");
-    assert.equal(payload.interest, "Grok Product Sprint");
-    assert.match(payload.message, /Grok agent/);
-    assert.equal(captured[0].init.redirect, "manual");
-    assert.equal(kv.store.size, 1);
-    const [key, record] = [...kv.store.entries()][0];
-    assert.equal(key.startsWith(LEAD_KEY_PREFIX), true);
-    const lead = JSON.parse(record.value);
-    assert.equal(lead.name, "Alex Founder");
-    assert.equal(lead.email, "alex@acme.com");
-    assert.equal(lead.company, "Acme");
-    assert.equal(lead.interest, "Grok Product Sprint");
-    assert.match(lead.message, /Grok agent/);
-    assert.equal(typeof lead.at, "string");
-    assert.ok(Date.parse(lead.at));
-    assert.equal(record.options.expirationTtl, LEAD_TTL_SECONDS);
+    const lead = assertLead(kv, fields);
+    assert.equal(email.sent.length, 1);
+    assertEnquiryMessage(email.sent[0], fields, lead.at);
     assert.ok(LEAD_TTL_SECONDS >= 180 * 24 * 60 * 60 - 60);
     assert.ok(LEAD_TTL_SECONDS <= 180 * 24 * 60 * 60 + 60);
   });
 
-  it("returns sent=1 when KV stores the lead even if FormSubmit returns 429", async () => {
-    const captured = [];
+  it("returns sent=1 when KV stores the lead even if email send throws, and logs the error", async () => {
     const kv = mockKv();
-    const res = await handleContact(
-      formPost(validFields()),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(429, { success: false, message: "Too many requests" }, captured) }
+    const email = mockEmail("throw");
+    const fields = validFields();
+    const { env, options } = contactEnv(kv, email);
+    const { result: res, errors } = await withCapturedErrors(() =>
+      handleContact(formPost(fields), env, options)
     );
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), SUCCESS_PATH);
-    assert.equal(captured.length, 1);
-    assert.equal(kv.store.size, 1);
+    assert.equal(email.sent.length, 1);
+    const lead = assertLead(kv, fields);
+    assert.equal(lead.emailed, false);
+    assert.equal(lead.sendError, "send failed");
+    assert.equal(lead.sendErrorCode, "E_DELIVERY_FAILED");
+    assert.ok(errors.some((args) => String(args[0]).includes("contact_email_send_failed")));
+    assert.ok(errors.some((args) => String(args[0]).includes("E_DELIVERY_FAILED")));
   });
 
-  it("does not treat a FormSubmit message string as success", async () => {
-    const captured = [];
-    const res = await handleContact(
-      formPost(validFields()),
-      {},
-      { fetchImpl: mockFetch(200, { success: false, message: "Please activate your form" }, captured) }
-    );
-    assert.equal(res.status, 303);
-    assert.equal(res.headers.get("Location"), ERROR_PATH);
-    assert.equal(captured.length, 1);
-  });
-
-  it("does not treat a message-only FormSubmit body as success", async () => {
-    const captured = [];
-    const res = await handleContact(
-      formPost(validFields()),
-      {},
-      { fetchImpl: mockFetch(200, { message: "Form submitted" }, captured) }
-    );
-    assert.equal(res.status, 303);
-    assert.equal(res.headers.get("Location"), ERROR_PATH);
-  });
-
-  it("returns error=1 when KV is missing and FormSubmit fails", async () => {
-    const captured = [];
-    const res = await handleContact(
-      formPost(validFields()),
-      {},
-      { fetchImpl: mockFetch(429, { message: "rate limited" }, captured) }
-    );
-    assert.equal(res.status, 303);
-    assert.equal(res.headers.get("Location"), ERROR_PATH);
-  });
-
-  it("still succeeds when KV is missing but FormSubmit reports success", async () => {
-    const captured = [];
-    const res = await handleContact(
-      formPost(validFields()),
-      {},
-      { fetchImpl: mockFetch(200, { success: true }, captured) }
-    );
+  it("returns sent=1 when KV is missing but EmailMessage send succeeds", async () => {
+    const email = mockEmail();
+    const fields = validFields();
+    const res = await handleContact(formPost(fields), { EMAIL: email.EMAIL }, { EmailMessage: FakeEmailMessage });
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), SUCCESS_PATH);
+    assert.equal(email.sent.length, 1);
+    assertEnquiryMessage(email.sent[0], fields);
   });
 
-  it("does not follow an upstream FormSubmit Location header", async () => {
-    const captured = [];
-    const fetchImpl = async (url, init) => {
-      captured.push({ url, init });
-      return new Response("", {
-        status: 302,
-        headers: { Location: "https://formsubmit.co/thanks" },
-      });
-    };
-    const res = await handleContact(
-      formPost({
-        name: "Alex",
-        email: "alex@acme.com",
-        message: "Hello",
-      }),
-      {},
-      { fetchImpl }
+  it("returns error=1 when KV is missing and email send throws, and logs the error", async () => {
+    const email = mockEmail("throw");
+    const { result: res, errors } = await withCapturedErrors(() =>
+      handleContact(formPost(validFields()), { EMAIL: email.EMAIL }, { EmailMessage: FakeEmailMessage })
     );
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), ERROR_PATH);
-    assert.equal(res.headers.get("Location")?.includes("formsubmit.co"), false);
+    assert.equal(email.sent.length, 1);
+    assert.ok(errors.some((args) => String(args[0]).includes("contact_email_send_failed")));
+  });
+
+  it("returns error=1 when KV is missing and the EMAIL binding is absent, and logs the error", async () => {
+    const { result: res, errors } = await withCapturedErrors(() =>
+      handleContact(formPost(validFields()), {}, { EmailMessage: FakeEmailMessage })
+    );
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("Location"), ERROR_PATH);
+    assert.ok(errors.some((args) => String(args[0]).includes("contact_email_send_failed")));
+    assert.ok(errors.some((args) => String(args[0]).includes("E_BINDING_MISSING")));
+  });
+
+  it("returns sent=1 when email send succeeds even if KV put throws", async () => {
+    const kv = mockKv({ fail: true });
+    const email = mockEmail();
+    const { env, options } = contactEnv(kv, email);
+    const res = await handleContact(formPost(validFields()), env, options);
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("Location"), SUCCESS_PATH);
+    assert.equal(kv.store.size, 0);
+    assert.equal(email.sent.length, 1);
   });
 
   it("accepts www Origin on an apex POST and apex Origin on a www POST", async () => {
-    const captured = [];
     const kv = mockKv();
+    const email = mockEmail();
+    const { env, options } = contactEnv(kv, email);
     const apexToWww = await handleContact(
       formPost(validFields(), { Origin: APEX, Referer: `${APEX}/contact.html` }),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(429, { success: "false" }, captured) }
+      env,
+      options
     );
     assert.equal(apexToWww.status, 303);
     assert.equal(apexToWww.headers.get("Location"), SUCCESS_PATH);
@@ -196,17 +237,20 @@ describe("handleContact", () => {
         { Origin: ORIGIN, Referer: `${ORIGIN}/contact.html` },
         `${APEX}/api/contact`
       ),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(429, { success: "false" }, captured) }
+      env,
+      options
     );
     assert.equal(wwwToApex.status, 303);
     assert.equal(wwwToApex.headers.get("Location"), SUCCESS_PATH);
     assert.equal(kv.store.size, 2);
+    assert.equal(email.sent.length, 2);
+    assert.match(email.sent[1].raw, /Reply-To: pat@acme.com/);
   });
 
-  it("silently succeeds on honeypot without calling FormSubmit or writing KV", async () => {
-    const captured = [];
+  it("silently succeeds on honeypot without sending email or writing KV", async () => {
     const kv = mockKv();
+    const email = mockEmail();
+    const { env, options } = contactEnv(kv, email);
     const res = await handleContact(
       formPost({
         name: "Bot",
@@ -214,43 +258,45 @@ describe("handleContact", () => {
         message: "spam",
         honeypot: "filled",
       }),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(200, { success: true }, captured) }
+      env,
+      options
     );
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), SUCCESS_PATH);
-    assert.equal(captured.length, 0);
+    assert.equal(email.sent.length, 0);
     assert.equal(kv.store.size, 0);
   });
 
-  it("rejects missing required fields without calling FormSubmit", async () => {
-    const captured = [];
+  it("rejects missing required fields without sending email or writing KV", async () => {
     const kv = mockKv();
+    const email = mockEmail();
+    const { env, options } = contactEnv(kv, email);
     const res = await handleContact(
       formPost({ name: "Alex", email: "not-an-email", message: "Hi" }),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(200, { success: true }, captured) }
+      env,
+      options
     );
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), ERROR_PATH);
-    assert.equal(captured.length, 0);
+    assert.equal(email.sent.length, 0);
     assert.equal(kv.store.size, 0);
   });
 
   it("rejects cross-origin posts", async () => {
-    const captured = [];
     const kv = mockKv();
+    const email = mockEmail();
+    const { env, options } = contactEnv(kv, email);
     const res = await handleContact(
       formPost(
         { name: "Alex", email: "alex@acme.com", message: "Hi" },
         { Origin: "https://evil.example" }
       ),
-      { CONTACT_LEADS: kv },
-      { fetchImpl: mockFetch(200, { success: true }, captured) }
+      env,
+      options
     );
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), ERROR_PATH);
-    assert.equal(captured.length, 0);
+    assert.equal(email.sent.length, 0);
     assert.equal(kv.store.size, 0);
   });
 
@@ -258,6 +304,30 @@ describe("handleContact", () => {
     const res = await handleContact(new Request(`${ORIGIN}/api/contact`));
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("Location"), "/contact.html");
+  });
+});
+
+describe("buildRawEnquiryEmail", () => {
+  it("strips newlines from the subject name and sets notify From / hello To / Reply-To", () => {
+    const raw = buildRawEnquiryEmail({
+      name: "Alex\r\nBcc: evil@example.com",
+      email: "alex@acme.com",
+      company: "",
+      interest: "",
+      message: "Hello",
+      at: "2026-09-02T12:00:00.000Z",
+    });
+    const subjectLine = raw.split("\r\n").find((line) => line.startsWith("Subject:"));
+    assert.ok(subjectLine);
+    assert.equal(subjectLine.includes("\n"), false);
+    assert.equal(subjectLine.includes("\r"), false);
+    assert.doesNotMatch(raw, /\r\nBcc:/i);
+    assert.match(raw, new RegExp(`From: ${FROM_NAME} <${FROM_ADDRESS}>`));
+    assert.match(raw, new RegExp(`To: ${CONTACT_EMAIL}`));
+    assert.match(raw, /Reply-To: alex@acme.com/);
+    assert.match(raw, /Company: \(not provided\)/);
+    assert.match(raw, /Interest: \(not provided\)/);
+    assert.match(raw, /Sent: 2026-09-02T12:00:00.000Z/);
   });
 });
 
@@ -276,22 +346,47 @@ describe("worker routing", () => {
     assert.equal(res.headers.get("Location"), SUCCESS_PATH);
   });
 
-  it("passes CONTACT_LEADS through and succeeds when FormSubmit returns 429", async () => {
+  it("passes CONTACT_LEADS through and succeeds when EmailMessage cannot load in Node", async () => {
     const kv = mockKv();
+    const email = mockEmail();
+    const { result: res, errors } = await withCapturedErrors(() =>
+      worker.fetch(formPost(validFields()), {
+        CONTACT_LEADS: kv,
+        EMAIL: email.EMAIL,
+      })
+    );
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("Location"), SUCCESS_PATH);
+    assert.equal(kv.store.size, 1);
+    const [key, record] = [...kv.store.entries()][0];
+    assert.equal(key.startsWith(LEAD_KEY_PREFIX), true);
+    const lead = JSON.parse(record.value);
+    assert.equal(lead.email, "alex@acme.com");
+    assert.equal(lead.emailed, false);
+    assert.ok(lead.sendError);
+    assert.equal(email.sent.length, 0);
+    assert.ok(errors.some((args) => String(args[0]).includes("contact_email_send_failed")));
+  });
+
+  it("does not call outbound fetch for a valid contact POST", async () => {
     const captured = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mockFetch(429, { success: false, message: "rate limited" }, captured);
+    globalThis.fetch = async (...args) => {
+      captured.push(args);
+      return new Response("no", { status: 500 });
+    };
     try {
-      const res = await worker.fetch(formPost(validFields()), { CONTACT_LEADS: kv });
+      const kv = mockKv();
+      const email = mockEmail();
+      const res = await handleContact(formPost(validFields()), {
+        CONTACT_LEADS: kv,
+        EMAIL: email.EMAIL,
+      }, { EmailMessage: FakeEmailMessage });
       assert.equal(res.status, 303);
       assert.equal(res.headers.get("Location"), SUCCESS_PATH);
+      assert.equal(captured.length, 0);
+      assert.equal(email.sent.length, 1);
       assert.equal(kv.store.size, 1);
-      const [key, record] = [...kv.store.entries()][0];
-      assert.equal(key.startsWith(LEAD_KEY_PREFIX), true);
-      const lead = JSON.parse(record.value);
-      assert.equal(lead.email, "alex@acme.com");
-      assert.equal(captured.length, 1);
-      assert.equal(captured[0].url, FORMSUBMIT_ENDPOINT);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -352,10 +447,27 @@ describe("browser assets", () => {
     assert.doesNotMatch(html, /formsubmit\.co/);
   });
 
-  it("wires CONTACT_LEADS to the existing KV namespace in wrangler.jsonc", () => {
+  it("wires CONTACT_LEADS and a hello@-only send_email binding in wrangler.jsonc", () => {
     const config = readFileSync("wrangler.jsonc", "utf8");
     assert.match(config, /"binding":\s*"CONTACT_LEADS"/);
     assert.match(config, /"id":\s*"be9028b297a44aa0bda686d09e3d7f6f"/);
+    assert.match(config, /"send_email"/);
+    assert.match(config, /"name":\s*"EMAIL"/);
+    assert.match(config, /"destination_address":\s*"hello@builtwithgrok\.co\.uk"/);
+  });
+
+  it("uses legacy EmailMessage send_email and drops FormSubmit and structured Email Sending", () => {
+    for (const path of ["src/contact.js", "src/worker.js"]) {
+      const text = readFileSync(path, "utf8");
+      assert.doesNotMatch(text, /formsubmit/i);
+      assert.doesNotMatch(text, /formsubmit\.co/);
+    }
+    const contact = readFileSync("src/contact.js", "utf8");
+    assert.match(contact, /cloudflare:email/);
+    assert.match(contact, /EmailMessage/);
+    assert.match(contact, /forms@notify\.builtwithgrok\.co\.uk/);
+    assert.doesNotMatch(contact, /html:\s*["'`<]/);
+    assert.doesNotMatch(contact, /replyTo:/);
   });
 
   it("states sole-trader privacy facts without a company or VAT number", () => {
@@ -366,10 +478,10 @@ describe("browser assets", () => {
     assert.doesNotMatch(html, /VAT\s*(number|reg)/i);
     assert.doesNotMatch(html, /ICO registration/i);
     assert.match(html, /Cloudflare Worker/i);
+    assert.match(html, /Email Routing/);
     assert.match(html, /hello@builtwithgrok\.co\.uk/);
-    assert.match(html, /best-effort/i);
-    assert.match(html, /FormSubmit/);
-    assert.match(html, /browser does not visit FormSubmit/i);
+    assert.doesNotMatch(html, /FormSubmit/);
     assert.doesNotMatch(html, /formsubmit\.co/);
+    assert.doesNotMatch(html, /Email Sending/);
   });
 });
