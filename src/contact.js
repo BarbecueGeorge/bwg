@@ -1,5 +1,5 @@
 const CONTACT_EMAIL = "hello@builtwithgrok.co.uk";
-const FORMSUBMIT_ENDPOINT = `https://formsubmit.co/ajax/${CONTACT_EMAIL}`;
+const FROM_NAME = "Built With Grok";
 const SUCCESS_PATH = "/contact.html?sent=1";
 const ERROR_PATH = "/contact.html?error=1";
 const LEAD_KEY_PREFIX = "lead:";
@@ -33,6 +33,12 @@ function isEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function oneLine(value) {
+  return String(value ?? "")
+    .replace(/[\r\n\u0000]+/g, " ")
+    .trim();
+}
+
 function canonicalHost(host) {
   return String(host || "")
     .toLowerCase()
@@ -64,18 +70,6 @@ async function readFields(request) {
   return Object.fromEntries(form.entries());
 }
 
-/**
- * FormSubmit is best-effort only. Require an explicit success flag and a 2xx
- * status. A message string alone is never treated as success (FormSubmit can
- * return a message with success: false, including activation and 429 cases).
- */
-function formsubmitSucceeded(status, body) {
-  if (status < 200 || status >= 300) return false;
-  if (!body || typeof body !== "object") return false;
-  if (body.success === false || body.success === "false") return false;
-  return body.success === true || body.success === "true";
-}
-
 function leadKey() {
   const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${LEAD_KEY_PREFIX}${id}`;
@@ -92,43 +86,51 @@ async function persistLead(env, lead) {
   }
 }
 
-async function notifyFormSubmit(fetchImpl, request, fields) {
-  const originUrl = new URL(request.url);
-  const upstream = await fetchImpl(FORMSUBMIT_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      Origin: originUrl.origin,
-      Referer: `${originUrl.origin}/contact.html`,
-    },
-    body: JSON.stringify({
-      ...fields,
-      _subject: "Built With Grok — project enquiry",
-      _template: "table",
-      _captcha: "false",
-    }),
-    redirect: "manual",
-  });
-
-  let body = {};
-  const text = await upstream.text();
-  try {
-    body = JSON.parse(text);
-  } catch {
-    body = {};
-  }
-  return formsubmitSucceeded(upstream.status, body);
+/**
+ * Build the structured Email Service payload for env.EMAIL.send().
+ * Wrangler 4 / Email Service Workers API (not the legacy EmailMessage MIME path).
+ */
+function buildEnquiryEmail({ name, email, company, interest, message, at }) {
+  const safeName = oneLine(name);
+  const lines = [
+    `Name: ${name}`,
+    `Email: ${email}`,
+    `Company: ${company || "(not provided)"}`,
+    `Interest: ${interest || "(not provided)"}`,
+    `Sent: ${at}`,
+    "",
+    "Message:",
+    message,
+  ];
+  return {
+    to: CONTACT_EMAIL,
+    from: { name: FROM_NAME, email: CONTACT_EMAIL },
+    replyTo: email,
+    subject: `Built With Grok enquiry from ${safeName}`,
+    text: lines.join("\n"),
+  };
 }
 
 /**
- * Same-origin contact POST. Persists every valid enquiry to KV, then tries
- * FormSubmit as a best-effort copy so the visitor's browser never has to
- * resolve formsubmit.co.
+ * Send via the Cloudflare Email Service Workers binding (env.EMAIL.send).
+ * Structured EmailMessageBuilder is the API this wrangler stack supports.
  */
-export async function handleContact(request, env = {}, options = {}) {
-  const fetchImpl = options.fetchImpl || fetch;
+async function sendEnquiryEmail(env, lead) {
+  const binding = env && env.EMAIL;
+  if (!binding || typeof binding.send !== "function") return false;
+  try {
+    await binding.send(buildEnquiryEmail(lead));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
+/**
+ * Same-origin contact POST. Persists every valid enquiry to KV and emails
+ * hello@builtwithgrok.co.uk from the Worker. Success if either path works.
+ */
+export async function handleContact(request, env = {}) {
   if (request.method === "GET" || request.method === "HEAD") {
     return redirect("/contact.html");
   }
@@ -176,27 +178,17 @@ export async function handleContact(request, env = {}, options = {}) {
     return redirect(ERROR_PATH);
   }
 
-  const stored = await persistLead(env, {
+  const lead = {
     at: new Date().toISOString(),
     name,
     email,
     company,
     interest,
     message,
-  });
+  };
 
-  let emailed = false;
-  try {
-    emailed = await notifyFormSubmit(fetchImpl, request, {
-      name,
-      email,
-      company,
-      interest,
-      message,
-    });
-  } catch {
-    emailed = false;
-  }
+  const stored = await persistLead(env, lead);
+  const emailed = await sendEnquiryEmail(env, lead);
 
   if (stored || emailed) {
     return redirect(SUCCESS_PATH);
@@ -206,9 +198,10 @@ export async function handleContact(request, env = {}, options = {}) {
 
 export {
   CONTACT_EMAIL,
-  FORMSUBMIT_ENDPOINT,
+  FROM_NAME,
   SUCCESS_PATH,
   ERROR_PATH,
   LEAD_KEY_PREFIX,
   LEAD_TTL_SECONDS,
+  buildEnquiryEmail,
 };

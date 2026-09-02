@@ -21,7 +21,7 @@
     if (errBox && /[?&]error=1(?:&|$)/.test(params)) {
       errBox.hidden = false;
     }
-    // Native POST to /api/contact. Do not fetch() FormSubmit from the browser.
+    // Native POST to /api/contact. The Worker emails hello@ and stores the lead.
   }
 
   // Hero video header: ensure autoplay, allow click to pause/play
